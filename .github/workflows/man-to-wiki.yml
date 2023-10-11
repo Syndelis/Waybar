@@ -25,7 +25,8 @@ jobs:
 
           for page in man/*.scd
           do
-            scdoc < $page > build/roff/$(basename $page .scd).roff
+            # Skip first 7 lines because man-to-md can't deal with comments
+            scdoc < $page | tail -n +8 > build/roff/$(basename $page .scd).roff
           done
 
       - name: Checkout man-to-md
