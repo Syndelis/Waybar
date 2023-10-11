@@ -1,0 +1,50 @@
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: write
+
+jobs:
+  man_to_wiki:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+      
+      - name: Install Perl and Scdoc
+        uses: Syndelis/cache-apt-pkgs-action@f3b6f83545eae209de57d2bcdca870c646b557d7
+        with:
+          packages: perl scdoc
+      
+      - name: Compile Man Pages
+        shell: bash
+        run: |
+          mkdir -p build/roff
+
+          for page in man/*.scd
+          do
+            scdoc < $page > build/roff/$(basename $page .scd).roff
+          done
+
+      - name: Checkout man-to-md
+        uses: actions/checkout@v4
+        with:
+          repository: mle86/man-to-md
+          path: man-to-md
+
+      - name: Build Markdown from Man Pages
+        shell: bash
+        run: |
+          mkdir -p build/md
+
+          for page in build/roff/*.roff
+          do
+            man-to-md/man-to-md.pl < $page > build/md/$(basename $page .roff).md
+          done
+      
+      - name: Publish as Wiki
+        uses: spenserblack/actions-wiki@v0.3.0
+        with:
+          path: build/md
