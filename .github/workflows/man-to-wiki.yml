@@ -34,6 +34,7 @@ jobs:
         with:
           repository: mle86/man-to-md
           path: man-to-md
+          ref: develop
 
       - name: Build Markdown from Man Pages
         shell: bash
