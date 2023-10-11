@@ -16,7 +16,7 @@ jobs:
       - name: Install Perl and Scdoc
         uses: Syndelis/cache-apt-pkgs-action@f3b6f83545eae209de57d2bcdca870c646b557d7
         with:
-          packages: perl scdoc
+          packages: scdoc pandoc
       
       - name: Compile Man Pages
         shell: bash
@@ -29,13 +29,6 @@ jobs:
             scdoc < $page | tail -n +8 > build/roff/$(basename $page .scd).roff
           done
 
-      - name: Checkout man-to-md
-        uses: actions/checkout@v4
-        with:
-          repository: mle86/man-to-md
-          path: man-to-md
-          ref: develop
-
       - name: Build Markdown from Man Pages
         shell: bash
         run: |
@@ -43,7 +36,7 @@ jobs:
 
           for page in build/roff/*.roff
           do
-            man-to-md/man-to-md.pl < $page > build/md/$(basename $page .roff).md
+            pandoc --from man --to markdown_github --wrap=preserve --no-highlight $page -o build/md/$(basename $page .roff).md
           done
       
       - name: Publish as Wiki
