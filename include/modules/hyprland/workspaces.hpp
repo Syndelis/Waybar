@@ -92,6 +92,8 @@ class Workspace {
 
   void update(const std::string& format, const std::string& icon);
 
+  void debug_windows(std::string);
+
  private:
   Workspaces& workspace_manager_;
 
@@ -130,6 +132,8 @@ class Workspaces : public AModule, public EventHandler {
   bool is_workspace_ignored(std::string& workspace_name);
 
   bool window_rewrite_config_uses_title() const { return any_window_rewrite_rule_uses_title_; }
+
+  void debug_workspaces(std::string);
 
  private:
   void onEvent(const std::string&) override;

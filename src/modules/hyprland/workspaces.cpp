@@ -229,6 +229,7 @@ bool isDoubleSpecial(std::string &workspace_name) {
 bool Workspaces::is_workspace_ignored(std::string &name) {
   for (auto &rule : ignore_workspaces_) {
     if (std::regex_match(name, rule)) {
+      spdlog::warn("[#2557] Workspaces::is_workspace_ignored > workspace '{}' is ignored", name);
       return true;
       break;
     }
@@ -241,6 +242,8 @@ void Workspaces::onEvent(const std::string &ev) {
   std::lock_guard<std::mutex> lock(mutex_);
   std::string eventName(begin(ev), begin(ev) + ev.find_first_of('>'));
   std::string payload = ev.substr(eventName.size() + 2);
+
+  spdlog::info("[#2557] Workspaces::onEvent > eventName: '{}', payload: '{}'", eventName, payload);
 
   if (eventName == "workspace") {
     active_workspace_name_ = payload;
@@ -345,11 +348,16 @@ void Workspaces::on_window_opened(std::string payload) {
 
   std::string window_title = payload.substr(next_comma_idx + 1, payload.length() - next_comma_idx);
 
+  debug_workspaces("Workspaces::on_window_opened");
+  spdlog::info("[#2557] Workspaces::on_window_opened > adding window '{}' with class '{}' and title '{}' to workspace '{}'", window_address, window_class, window_title, workspace_name);
+
   windows_to_create_.emplace_back(
       CreateWindow(workspace_name, window_address, window_class, window_title));
 }
 
 void Workspaces::on_window_closed(std::string addr) {
+  debug_workspaces("Workspaces::on_window_closed");
+  spdlog::info("[#2557] Workspaces::on_window_closed > trying to close window '{}'", addr);
   for (auto &workspace : workspaces_) {
     if (workspace->on_window_closed(addr)) {
       break;
@@ -358,6 +366,8 @@ void Workspaces::on_window_closed(std::string addr) {
 }
 
 void Workspaces::on_window_moved(std::string payload) {
+  spdlog::info("[#2557] Workspaces::on_window_moved > payload '{}'", payload);
+
   size_t last_comma_idx = 0;
   size_t next_comma_idx = payload.find(',');
   std::string window_address = payload.substr(last_comma_idx, next_comma_idx - last_comma_idx);
@@ -367,10 +377,13 @@ void Workspaces::on_window_moved(std::string payload) {
 
   std::string window_repr;
 
+  debug_workspaces("Workspaces::on_window_moved");
+
   // If the window was still queued to be created, just change its destination
   // and exit
   for (auto &window : windows_to_create_) {
     if (window.addr() == window_address) {
+    spdlog::info("[#2557] Workspaces::on_window_moved > found window '{}' in window queue. moving...", window_address);
       window.move_to_worksace(workspace_name);
       return;
     }
@@ -380,16 +393,21 @@ void Workspaces::on_window_moved(std::string payload) {
   for (auto &workspace : workspaces_) {
     try {
       window_repr = workspace->on_window_closed(window_address).value();
+      spdlog::info("[#2557] Workspaces::on_window_moved > found window '{}' with repr '{}' in workspace '{}'. removing...", window_address, window_repr, workspace->name());
       break;
     } catch (const std::bad_optional_access &e) {
       // window was not found in this workspace
+      spdlog::info("[#2557] Workspaces::on_window_moved > didn't find window '{}' in workspace '{}'. continuing...", window_address, workspace->name());
       continue;
     }
   }
 
   // ...and add it to the new workspace
   if (!window_repr.empty()) {
+    spdlog::info("[#2557] Workspaces::on_window_moved > moving window '{}' with repr '{}' to workspace '{}'", window_address, window_repr, workspace_name);
     windows_to_create_.emplace_back(CreateWindow(workspace_name, window_address, window_repr));
+  } else {
+    spdlog::error("[#2557] Workspaces::on_window_moved > didn't find window '{}' in any workspace", window_address);
   }
 }
 
@@ -419,45 +437,83 @@ void Workspaces::initialize_window_maps() {
 }
 
 void Workspace::initialize_window_map(const Json::Value &clients_data) {
+  spdlog::info("[#2557] Workspace::initialize_window_map");
   window_map_.clear();
   for (auto client : clients_data) {
     if (client["workspace"]["id"].asInt() == id()) {
+      spdlog::info("[#2557] Workspace::initialize_window_map > adding window '{}' to workspace '{}'", client["address"].asString(), name_);
       insert_window({client});
     }
   }
 }
 
 void Workspace::insert_window(CreateWindow create_window_paylod) {
+  spdlog::info("[#2557] Workspace::insert_window > inserting window '{}' to workspace '{}'", create_window_paylod.addr(), name_);
   if (!create_window_paylod.is_empty(workspace_manager_)) {
+    spdlog::info("[#2557] Workspace::insert_window > window '{}' features a not-empty repr/title+class");
     window_map_[create_window_paylod.addr()] = create_window_paylod.repr(workspace_manager_);
+  } else {
+    spdlog::error("[#2557] Workspace::insert_window > window '{}' features an empty repr/title+class");
   }
+  debug_windows("Workspace::insert_window");
 };
 
 std::string Workspace::remove_window(WindowAddress addr) {
+
+  spdlog::info("[#2557] Workspace::remove_window > removing window '{}' from workspace '{}'", addr, name_);
+  debug_windows("Workspace::remove_window");
+
   std::string window_repr = window_map_[addr];
   window_map_.erase(addr);
+
+  spdlog::info("[#2557] Workspace::remove_window > window '{}' had repr '{}'", addr, window_repr);
 
   return window_repr;
 }
 
 bool Workspace::on_window_opened(CreateWindow create_window_paylod) {
+  debug_windows("Workspace::on_window_opened");
+  spdlog::info("[#2557] Workspace::on_window_opened > asked to insert window '{}' to workspace '{}'. This workspace is '{}'", create_window_paylod.addr(), create_window_paylod.workspace_name(), name_);
   if (create_window_paylod.workspace_name() == name()) {
     insert_window(create_window_paylod);
     return true;
   } else {
+    spdlog::info("[#2557] Workspace::on_window_opened >> Wrong workspace");
     return false;
   }
 }
 
 std::optional<std::string> Workspace::on_window_closed(WindowAddress &addr) {
+  debug_windows("Workspace::on_window_closed");
+  spdlog::info("[#2557] Workspace::on_window_closed > asked to remove window '{}'. Current workspace is '{}'", addr, name_);
   if (window_map_.contains(addr)) {
     return remove_window(addr);
   } else {
+    spdlog::info("[#2557] Workspace::on_window_closed >> window '{}' not present in workspace '{}'", addr, name_);
     return {};
   }
 }
 
+void Workspace::debug_windows(std::string called_from) {
+  spdlog::info("[#2557] Workspace::debug_windows('{}') for workspace '{}' BEGIN", called_from, name_);
+  for (auto& window : window_map_) {
+    spdlog::info("[#2557]\t{} → {}", window.first, window.second);
+  }
+  spdlog::info("[#2557] Workspace::debug_windows('{}') for workspace '{}' END", called_from, name_);
+}
+
+void Workspaces::debug_workspaces(std::string called_from) {
+  spdlog::info("[#2557] Workspaces::debug_workspaces('{}') BEGIN", called_from);
+  for (auto& workspace : workspaces_) {
+    spdlog::info("[#2557] Workspace '{}'", workspace->name());
+  }
+  spdlog::info("[#2557] Workspaces::debug_workspaces('{}') END", called_from);
+}
+
 void Workspaces::create_workspace(Json::Value &workspace_data, const Json::Value &clients_data) {
+  debug_workspaces("Workspaces::create_workspace");
+  spdlog::info("[#2557] Workspaces::create_workspace > with name '{}'", workspace_data["name"].asString());
+
   // avoid recreating existing workspaces
   auto workspace = std::find_if(
       workspaces_.begin(), workspaces_.end(), [&](std::unique_ptr<Workspace> const &x) {
@@ -467,6 +523,7 @@ void Workspaces::create_workspace(Json::Value &workspace_data, const Json::Value
       });
 
   if (workspace != workspaces_.end()) {
+    spdlog::info("[#2557] Workspaces::create_workspace > workspace exists");
     return;
   }
 
@@ -479,6 +536,8 @@ void Workspaces::create_workspace(Json::Value &workspace_data, const Json::Value
 }
 
 void Workspaces::remove_workspace(std::string name) {
+  debug_workspaces("Workspaces::remove_workspace");
+  spdlog::info("[#2557] Workspaces::remove_workspace > remove workspace with name '{}'", name);
   auto workspace =
       std::find_if(workspaces_.begin(), workspaces_.end(), [&](std::unique_ptr<Workspace> &x) {
         return (name.starts_with("special:") && name.substr(8) == x->name()) || name == x->name();
@@ -486,11 +545,13 @@ void Workspaces::remove_workspace(std::string name) {
 
   if (workspace == workspaces_.end()) {
     // happens when a workspace on another monitor is destroyed
+    spdlog::info("[#2557] Workspaces::remove_workspace > workspace '{}' doesn't exist", name);
     return;
   }
 
   if ((*workspace)->is_persistent()) {
     // don't remove persistent workspaces, create_workspace will take care of replacement
+    spdlog::info("[#2557] Workspaces::remove_workspace > workspace '{}' is persistent. ignoring...", name);
     return;
   }
 
@@ -644,6 +705,8 @@ Workspace::Workspace(const Json::Value &workspace_data, Workspaces &workspace_ma
   button_.set_relief(Gtk::RELIEF_NONE);
   content_.set_center_widget(label_);
   button_.add(content_);
+
+  spdlog::info("[#2557] Workspace::Workspace > initializing workspace '{}'", name_);
 
   initialize_window_map(clients_data);
 }
@@ -902,13 +965,17 @@ std::string CreateWindow::repr(Workspaces &workspace_manager) {
 
 bool CreateWindow::is_empty(Workspaces &workspace_manager) {
   if (std::holds_alternative<Repr>(window_)) {
-    return std::get<Repr>(window_).empty();
+    auto repr = std::get<Repr>(window_);
+    spdlog::info("[#2557] CreateWindow::is_empty > window '{}' repr '{}'", addr(), repr);
+    return repr.empty();
   } else if (std::holds_alternative<ClassAndTitle>(window_)) {
     auto [window_class, window_title] = std::get<ClassAndTitle>(window_);
+    spdlog::info("[#2557] CreateWindow::is_empty > window '{}' class '{}' title '{}' uses title '{}'", addr(), window_class, window_title, workspace_manager.window_rewrite_config_uses_title());
     return (window_class.empty() &&
             (!workspace_manager.window_rewrite_config_uses_title() || window_title.empty()));
   } else {
     // Unreachable
+    spdlog::error("[#2557] CreateWindow::is_empty > window '{}' unreachable!", addr());
     return true;
   }
 }
